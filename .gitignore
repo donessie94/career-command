@@ -15,7 +15,11 @@ Thumbs.db
 # Environment / secrets
 # =========================
 .env
+
 .env.*
+# exception rule
+!.env.example
+
 .venv/
 venv/
 env/
