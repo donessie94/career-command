@@ -1,2 +1,3 @@
-# career-command
-Job search command center for tracking applications, tailoring resumes, and organizing interview prep.
+# Career Command
+
+Career Command is a full-stack job search platform that helps candidates track applications, tailor resumes for specific roles, and manage interview preparation from a single dashboard.

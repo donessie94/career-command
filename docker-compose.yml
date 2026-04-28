@@ -1,0 +1,160 @@
+services:
+  # -------------------------
+  # PostgreSQL database
+  # -------------------------
+  db:
+    image: postgres:16
+    container_name: career-command-db
+
+    # Load DB credentials from backend/.env
+    env_file:
+      - ./backend/.env
+
+    # Official Postgres image reads these on first startup
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+
+    # Persist database files so data survives container rebuilds/removal
+    # Syntax: <named_volume>:<path_inside_container>
+    # /var/lib/postgresql/data is the default data directory used by the official Postgres Docker image.
+    # (Postgres stores its DB files at /var/lib/postgresql/data in the official image.)
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+    # Expose Postgres to host machine for local tools if needed
+    ports:
+      - "5432:5432"
+
+    # Mark DB as healthy only when it is ready to accept connections
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # -------------------------
+  # Redis (for Celery later)
+  # -------------------------
+  redis:
+    image: redis:7
+    container_name: career-command-redis
+    ports:
+      - "6379:6379"
+
+  # -------------------------
+  # Django backend
+  # -------------------------
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+
+    container_name: career-command-backend
+
+    # Wait for DB before starting backend
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+    working_dir: /app
+
+    # Load backend settings from backend/.env
+    env_file:
+      - ./backend/.env
+
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings
+      DATABASE_URL: ${DATABASE_URL}
+      DJANGO_DEBUG: ${DJANGO_DEBUG}
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
+      REDIS_URL: ${REDIS_URL}
+
+    # Mount local backend folder into container
+    # so files created/edited in container appear in the repo
+    volumes:
+      - ./backend:/app
+
+    ports:
+      - "8000:8000"
+
+    command: sh -c "python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
+
+  # -------------------------
+  # Celery worker
+  # -------------------------
+  # worker:
+  #   build:
+  #     context: ./backend
+  #     dockerfile: Dockerfile
+
+  #   container_name: career-command-worker
+
+  #   depends_on:
+  #     db:
+  #       condition: service_healthy
+  #     redis:
+  #       condition: service_started
+
+  #   working_dir: /app
+
+  #   env_file:
+  #     - ./backend/.env
+
+  #   environment:
+  #     DJANGO_SETTINGS_MODULE: config.settings
+  #     DATABASE_URL: ${DATABASE_URL}
+  #     DJANGO_DEBUG: ${DJANGO_DEBUG}
+  #     DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
+  #     DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS}
+  #     CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
+  #     REDIS_URL: ${REDIS_URL}
+
+  #   volumes:
+  #     - ./backend:/app
+
+  #   command: sh -c "celery -A config worker --loglevel=info"
+
+  # -------------------------
+  # React frontend
+  # -------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+
+    container_name: career-command-frontend
+    working_dir: /app
+
+    # Load frontend env vars from frontend/.env
+    env_file:
+      - ./frontend/.env
+
+    environment:
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL}
+
+    # Mount local frontend folder into container
+    # and keep node_modules inside container
+    volumes:
+      - ./frontend:/app
+      # Anonymous container, since /app/node_modules is more specific than /app,
+      # it overrides that subpath. Thus node_modules IS NOT our local folder but
+      # the one inside the container with all the needed dependencies.
+      - /app/node_modules
+
+    ports:
+      - "5173:5173"
+
+    # For now this assumes a Vite React app will exist in frontend/
+    command: sh -c "npm run dev -- --host 0.0.0.0"
+
+# -------------------------
+# Named volumes
+# -------------------------
+volumes:
+  postgres_data:
